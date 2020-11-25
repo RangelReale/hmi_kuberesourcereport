@@ -7,7 +7,7 @@ from kubragen2.data import ValueData, Data
 from kubragen2.options import Options, OptionValue, OptionsBuildData
 
 
-class KubeResourceReportBuilderChartRequest:
+class KubeResourceReportChartRequest:
     config: Config
     namespace: Optional[str]
     releasename: str
@@ -48,7 +48,7 @@ class KubeResourceReportBuilderChartRequest:
             },
             'service': {
                 'type': 'ClusterIP',
-                'port': '80',
+                'port': 80,
                 'portName': 'http',
             },
             'resources': None,
@@ -84,19 +84,185 @@ class KubeResourceReportBuilderChartRequest:
             })
 
         if self._options.option_get('rbac.create'):
+            data.extend([
+                {
+                    'kind': 'ClusterRole',
+                    'apiVersion': 'rbac.authorization.k8s.io/v1',
+                    'metadata': {
+                        'name': self.name_format(),
+                    },
+                    'rules': [{
+                        'apiGroups': [''],
+                        'resources': ['nodes', 'pods', 'namespaces', 'services'],
+                        'verbs': ['get', 'list']
+                    },
+                    {
+                        'apiGroups': ['networking.k8s.io'],
+                        'resources': ['ingresses'],
+                        'verbs': ['list']
+                    },
+                    {
+                        'apiGroups': ['metrics.k8s.io'],
+                        'resources': ['nodes', 'pods'],
+                        'verbs': ['get', 'list']
+                    },
+                    {
+                        'apiGroups': [''],
+                        'resources': ['services/proxy'],
+                        'resourceNames': ['heapster'],
+                        'verbs': ['get']
+                    },
+                    {
+                        'apiGroups': ['autoscaling.k8s.io'],
+                        'resources': ['verticalpodautoscalers'],
+                        'verbs': ['get', 'list']
+                    },
+                    {
+                        'apiGroups': ['apps'],
+                        'resources': ['deployments',
+                                      'statefulsets',
+                                      'replicasets',
+                                      'daemonsets'],
+                        'verbs': ['get', 'list']
+                    }]
+                },
+                {
+                    'apiVersion': 'rbac.authorization.k8s.io/v1',
+                    'kind': 'ClusterRoleBinding',
+                    'metadata': {
+                        'name': self.name_format(),
+                    },
+                    'roleRef': {
+                        'apiGroup': 'rbac.authorization.k8s.io',
+                        'kind': 'ClusterRole',
+                        'name': self.name_format(),
+                    },
+                    'subjects': [{
+                        'kind': 'ServiceAccount',
+                        'name': self._serviceaccount,
+                        'namespace': namespace_value,
+                    }]
+                },
+            ])
+
+        data.extend([
+            {
+                'apiVersion': 'apps/v1',
+                'kind': 'Deployment',
+                'metadata': {
+                    'name': self.name_format(),
+                    'namespace': namespace_value,
+                    'labels': {
+                        'app.kubernetes.io/name': 'kuberesourcereport',
+                        'app.kubernetes.io/instance': self.name_format(),
+                    },
+                },
+                'spec': {
+                    'replicas': 1,
+                    'selector': {
+                        'matchLabels': {
+                            'app.kubernetes.io/name': 'kuberesourcereport',
+                            'app.kubernetes.io/instance': self.name_format(),
+                        }
+                    },
+                    'template': {
+                        'metadata': {
+                            'labels': {
+                                'app.kubernetes.io/name': 'kuberesourcereport',
+                                'app.kubernetes.io/instance': self.name_format(),
+                            }
+                        },
+                        'spec': {
+                            'serviceAccountName': self._serviceaccount,
+                            'containers': [{
+                                'name': 'kube-resource-report',
+                                'image': '{}/{}:{}'.format(self._options.option_get('image.registry'),
+                                                           self._options.option_get('image.repository'),
+                                                           self._options.option_get('image.tag')),
+                                'args': ['--update-interval-minutes=1',
+                                         '--additional-cost-per-cluster=30.0',
+                                         '/output'],
+                                'volumeMounts': [{
+                                    'mountPath': '/output',
+                                    'name': 'report-data'
+                                }],
+                                'securityContext': {
+                                    'readOnlyRootFilesystem': True,
+                                    'runAsNonRoot': True,
+                                    'runAsUser': 1000
+                                },
+                                'resources': ValueData(self._options.option_get('resources'), disabled_if_none=True),
+                            },
+                            {
+                                'name': 'nginx',
+                                'image': '{}/{}:{}'.format(self._options.option_get('webserver.image.registry'),
+                                                           self._options.option_get('webserver.image.repository'),
+                                                           self._options.option_get('webserver.image.tag')),
+                                'volumeMounts': [{
+                                    'mountPath': '/usr/share/nginx/html',
+                                    'name': 'report-data',
+                                    'readOnly': True
+                                }],
+                                'ports': [{
+                                    'containerPort': 80
+                                }],
+                                'readinessProbe': {
+                                    'httpGet': {
+                                        'path': '/',
+                                        'port': 80
+                                    }
+                                },
+                                'resources': ValueData(self._options.option_get('webserver.resources'),
+                                                       disabled_if_none=True),
+                            }],
+                            'volumes': [{
+                                'name': 'report-data',
+                                'emptyDir': {
+                                    'sizeLimit': '500Mi'
+                                }
+                            }]
+                        }
+                    }
+                }
+            },
+            {
+                'apiVersion': 'v1',
+                'kind': 'Service',
+                'metadata': {
+                    'name': self.name_format(),
+                    'namespace': namespace_value,
+                    'labels': {
+                        'app.kubernetes.io/name': 'kuberesourcereport',
+                        'app.kubernetes.io/instance': self.name_format(),
+                    },
+                },
+                'spec': {
+                    'selector': {
+                        'app.kubernetes.io/name': 'kuberesourcereport',
+                        'app.kubernetes.io/instance': self.name_format(),
+                    },
+                    'type': self._options.option_get('service.type'),
+                    'ports': [{
+                        'name': self._options.option_get('service.portName'),
+                        'port': self._options.option_get('service.port'),
+                        'protocol': 'TCP',
+                        'targetPort': 80
+                    }]
+                }
+            },
+        ])
+
+        return KubeResourceReportChart(
+            request=self, config=self.config, data=OptionsBuildData(self._options, data))
 
 
-        return KubeResourceReportBuilderChart(request=self, config=self.config,
-                                     data=OptionsBuildData(self._options, data))
+class KubeResourceReportChart(Chart):
+    request: KubeResourceReportChartRequest
 
-
-class KubeResourceReportBuilderChart(Chart):
-    request: KubeResourceReportBuilderChartRequest
-
-    def __init__(self, request: KubeResourceReportBuilderChartRequest, config: Optional[Config] = None,
+    def __init__(self, request: KubeResourceReportChartRequest, config: Optional[Config] = None,
                  data: Optional[Sequence[ChartData]] = None):
         super().__init__(config=config, data=data)
         self.request = request
 
     def createClone(self) -> 'Chart':
-        return KubeResourceReportBuilderChart(request=self.request, config=self.config)
+        return KubeResourceReportChart(request=self.request, config=self.config)
