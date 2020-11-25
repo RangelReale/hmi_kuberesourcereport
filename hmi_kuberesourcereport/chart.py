@@ -15,7 +15,7 @@ class KubeResourceReportChartRequest:
     _options: Options
     _serviceaccount: str
 
-    def __init__(self, namespace: Optional[str] = 'default', releasename: str = 'kuberesourcereport',
+    def __init__(self, namespace: Optional[str] = 'default', releasename: str = 'kube-resource-report',
                  values: Optional[Mapping[str, Any]] = None, config: Optional[Config] = None):
         self.namespace = namespace
         self.releasename = releasename
@@ -153,7 +153,7 @@ class KubeResourceReportChartRequest:
                     'name': self.name_format(),
                     'namespace': namespace_value,
                     'labels': {
-                        'app.kubernetes.io/name': 'kuberesourcereport',
+                        'app.kubernetes.io/name': 'kube-resource-report',
                         'app.kubernetes.io/instance': self.name_format(),
                     },
                 },
@@ -161,14 +161,14 @@ class KubeResourceReportChartRequest:
                     'replicas': 1,
                     'selector': {
                         'matchLabels': {
-                            'app.kubernetes.io/name': 'kuberesourcereport',
+                            'app.kubernetes.io/name': 'kube-resource-report',
                             'app.kubernetes.io/instance': self.name_format(),
                         }
                     },
                     'template': {
                         'metadata': {
                             'labels': {
-                                'app.kubernetes.io/name': 'kuberesourcereport',
+                                'app.kubernetes.io/name': 'kube-resource-report',
                                 'app.kubernetes.io/instance': self.name_format(),
                             }
                         },
@@ -232,13 +232,13 @@ class KubeResourceReportChartRequest:
                     'name': self.name_format(),
                     'namespace': namespace_value,
                     'labels': {
-                        'app.kubernetes.io/name': 'kuberesourcereport',
+                        'app.kubernetes.io/name': 'kube-resource-report',
                         'app.kubernetes.io/instance': self.name_format(),
                     },
                 },
                 'spec': {
                     'selector': {
-                        'app.kubernetes.io/name': 'kuberesourcereport',
+                        'app.kubernetes.io/name': 'kube-resource-report',
                         'app.kubernetes.io/instance': self.name_format(),
                     },
                     'type': self._options.option_get('service.type'),
